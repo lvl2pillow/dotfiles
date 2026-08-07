@@ -105,8 +105,8 @@ assert_eq "single dot_ file tmpl"    ".gitconfig" "$(get_target_path dot_gitconf
 assert_eq "single empty_dot_"        ".hushlogin" "$(get_target_path empty_dot_hushlogin)"
 assert_eq "two nested dot_ dirs"     ".config/.nvim/init.lua" \
     "$(get_target_path dot_config/dot_nvim/init.lua)"
-assert_eq "nested dot_ then plain"   ".zsh/completions/_remctl" \
-    "$(get_target_path dot_zsh/completions/_remctl)"
+assert_eq "nested dot_ then plain"   ".zsh/completions/_foo" \
+    "$(get_target_path dot_zsh/completions/_foo)"
 assert_eq "tmpl at depth"            ".config/foo/bar.conf" \
     "$(get_target_path dot_config/foo/bar.conf.tmpl)"
 assert_eq "exact_ dir in path"       ".config/foo" \
