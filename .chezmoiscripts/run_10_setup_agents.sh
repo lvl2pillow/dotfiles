@@ -1,3 +1,6 @@
+#!/bin/bash
+set -euo pipefail
+
 SRC="$HOME/.agents/AGENTS.md"
 if [ ! -f "$SRC" ]; then
     exit 0
