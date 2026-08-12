@@ -10,11 +10,14 @@ if command -v pi &>/dev/null; then
     echo "Linked $HOME/.pi/agent/AGENTS.md -> ~/.agents/AGENTS.md"
 fi
 
-# claude: symlink global CLAUDE.md
+# claude: symlink global CLAUDE.md + skills
 if command -v claude &>/dev/null; then
     mkdir -p "$HOME/.claude"
     ln -sfn "$SRC" "$HOME/.claude/CLAUDE.md"
     echo "Linked $HOME/.claude/CLAUDE.md -> ~/.agents/AGENTS.md"
+
+    ln -sfn "$HOME/.agents/skills" "$HOME/.claude/skills"
+    echo "Linked $HOME/.claude/skills -> ~/.agents/skills"
 fi
 
 # codex: symlink global AGENTS.md
