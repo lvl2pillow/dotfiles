@@ -110,7 +110,7 @@ get_target_path() {
     while [ -n "$rest" ]; do
         case "$rest" in
             */*) comp="${rest%%/*}"; rest="${rest#*/}"; is_last=0 ;;
-            *)   comp="$rest";       rest="";          is_last=1 ;;
+            *)   comp="$rest";       rest="";           is_last=1 ;;
         esac
         case "$comp" in .*) return 1 ;; esac
         if [ "$is_last" -eq 1 ]; then

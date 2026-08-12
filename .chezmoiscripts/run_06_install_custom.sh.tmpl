@@ -11,6 +11,22 @@ else
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 fi
 
+{{ if not .is_managed -}}
+if command -v pi &>/dev/null; then
+    echo "pi already installed. Skipping."
+else
+    echo "Installing pi..."
+    curl -fsSL https://pi.dev/install.sh | sh
+fi
+{{ end -}}
+
+if command -v herdr &>/dev/null; then
+    echo "herdr already installed. Skipping."
+else
+    echo "Installing herdr..."
+    curl -fsSL https://herdr.dev/install.sh | sh
+fi
+
 btt_preset="{{ .chezmoi.sourceDir }}/.assets/Default.bttpreset"
 if [ -f "$btt_preset" ] && pgrep -x "BetterTouchTool" &>/dev/null; then
     echo "Importing BetterTouchTool preset..."
