@@ -6,25 +6,33 @@ fi
 # pi: symlink global AGENTS.md
 if command -v pi &>/dev/null; then
     mkdir -p "$HOME/.pi/agent"
-    ln -sfn "$SRC" "$HOME/.pi/agent/AGENTS.md"
-    echo "Linked $HOME/.pi/agent/AGENTS.md -> ~/.agents/AGENTS.md"
+    if [ ! -e "$HOME/.pi/agent/AGENTS.md" ]; then
+        ln -s "$SRC" "$HOME/.pi/agent/AGENTS.md"
+        echo "Linked $HOME/.pi/agent/AGENTS.md -> ~/.agents/AGENTS.md"
+    fi
 fi
 
 # claude: symlink global CLAUDE.md + skills
 if command -v claude &>/dev/null; then
     mkdir -p "$HOME/.claude"
-    ln -sfn "$SRC" "$HOME/.claude/CLAUDE.md"
-    echo "Linked $HOME/.claude/CLAUDE.md -> ~/.agents/AGENTS.md"
+    if [ ! -e "$HOME/.claude/CLAUDE.md" ]; then
+        ln -s "$SRC" "$HOME/.claude/CLAUDE.md"
+        echo "Linked $HOME/.claude/CLAUDE.md -> ~/.agents/AGENTS.md"
+    fi
 
-    ln -sfn "$HOME/.agents/skills" "$HOME/.claude/skills"
-    echo "Linked $HOME/.claude/skills -> ~/.agents/skills"
+    if [ ! -e "$HOME/.claude/skills" ]; then
+        ln -s "$HOME/.agents/skills" "$HOME/.claude/skills"
+        echo "Linked $HOME/.claude/skills -> ~/.agents/skills"
+    fi
 fi
 
 # codex: symlink global AGENTS.md
 if command -v codex &>/dev/null; then
     mkdir -p "$HOME/.codex"
-    ln -sfn "$SRC" "$HOME/.codex/AGENTS.md"
-    echo "Linked $HOME/.codex/AGENTS.md -> ~/.agents/AGENTS.md"
+    if [ ! -e "$HOME/.codex/AGENTS.md" ]; then
+        ln -s "$SRC" "$HOME/.codex/AGENTS.md"
+        echo "Linked $HOME/.codex/AGENTS.md -> ~/.agents/AGENTS.md"
+    fi
 fi
 
 # cursor: write rules file with frontmatter + content
