@@ -1,4 +1,3 @@
-{{ if eq .chezmoi.os "darwin" -}}
 #!/bin/bash
 set -euo pipefail
 
@@ -18,13 +17,18 @@ else
     echo "Installing pi..."
     curl -fsSL https://pi.dev/install.sh | sh
 fi
-{{ end -}}
 
-if command -v herdr &>/dev/null; then
-    echo "herdr already installed. Skipping."
-else
-    echo "Installing herdr..."
-    curl -fsSL https://herdr.dev/install.sh | sh
+{{ end -}}
+{{ if eq .chezmoi.os "darwin" -}}
+move_window_space_src="{{ .chezmoi.sourceDir }}/.assets/move-window-space.swift"
+move_window_space_bin="$HOME/.local/bin/move-window-space"
+if [ ! -x "$move_window_space_bin" ] || [ "$move_window_space_src" -nt "$move_window_space_bin" ]; then
+    echo "Building move-window-space..."
+    mkdir -p "$(dirname "$move_window_space_bin")"
+    swiftc -O -swift-version 5 \
+        "$move_window_space_src" \
+        -o "$move_window_space_bin"
+    chmod 755 "$move_window_space_bin"
 fi
 
 btt_preset="{{ .chezmoi.sourceDir }}/.assets/Default.bttpreset"
@@ -37,5 +41,5 @@ else
     echo "BTT preset file not found. Skipping."
 fi
 
-echo "Done."
 {{ end -}}
+echo "Done."
