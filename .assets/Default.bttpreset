@@ -3,7 +3,7 @@
   "BTTPresetInfoURL" : "",
   "BTTPresetName" : "Default",
   "BTTPresetColor" : "234.600000, 42.228000, 221.775200, 255.000000",
-  "BTTPresetUUID" : "F9C432CB-0AC0-4E5F-B5A7-BCB67693F90D",
+  "BTTPresetUUID" : "0487E584-08B4-4B5C-A2AC-186C39CA9315",
   "BTTPresetContent" : [
     {
       "BTTAppBundleIdentifier" : "BT.G",
@@ -14,7 +14,7 @@
       },
       "BTTTriggers" : [
         {
-          "BTTLastUpdatedAt" : 1788233335.4325871,
+          "BTTLastUpdatedAt" : 1788302643.6023769,
           "BTTTriggerType" : 0,
           "BTTTriggerClass" : "BTTTriggerTypeKeyboardShortcut",
           "BTTUUID" : "0F44FB83-2192-4BC5-9990-6EB29666BDC8",
@@ -29,7 +29,7 @@
           "BTTAutoAdaptToKeyboardLayout" : 0,
           "BTTActionsToExecute" : [
             {
-              "BTTLastUpdatedAt" : 1788233206.923378,
+              "BTTLastUpdatedAt" : 1788273845.9003839,
               "BTTTriggerParentUUID" : "0F44FB83-2192-4BC5-9990-6EB29666BDC8",
               "BTTIsPureAction" : true,
               "BTTUUID" : "C273287F-3764-469E-BF9A-73D9D9EF4196",
@@ -40,13 +40,30 @@
               "BTTOrder" : 1
             },
             {
-              "BTTLastUpdatedAt" : 1788233206.9234231,
+              "BTTLastUpdatedAt" : 1788273861.8511009,
               "BTTTriggerParentUUID" : "0F44FB83-2192-4BC5-9990-6EB29666BDC8",
               "BTTIsPureAction" : true,
-              "BTTUUID" : "4E7B7E22-6D75-4233-A63E-4FFA855090BA",
+              "BTTUUID" : "5340680B-EAED-4851-B1EA-2F77C4562E44",
               "BTTPredefinedActionType" : 113,
               "BTTPredefinedActionName" : "Move Left a Space",
-              "BTTOrder" : 2
+              "BTTOrder" : 33
+            },
+            {
+              "BTTLastUpdatedAt" : 1788302640.3735549,
+              "BTTTriggerParentUUID" : "0F44FB83-2192-4BC5-9990-6EB29666BDC8",
+              "BTTIsPureAction" : true,
+              "BTTUUID" : "178E0503-2754-4D1A-BC07-574B6ECDA1F6",
+              "BTTPredefinedActionType" : 172,
+              "BTTPredefinedActionName" : "Run Apple Script (blocking)",
+              "BTTAdditionalActionData" : {
+                "BTTScriptType" : 0,
+                "BTTAppleScriptUsePath" : false,
+                "BTTScriptLocation" : 0,
+                "BTTAppleScriptRunInBackground" : false,
+                "BTTAppleScriptString" : "set helper to POSIX path of (path to home folder) & \".local/bin/move-window-space\"\rdo shell script (quoted form of helper) & \" focus\""
+              },
+              "BTTInlineAppleScript" : "set helper to POSIX path of (path to home folder) & \".local/bin/move-window-space\"\rdo shell script (quoted form of helper) & \" focus\"",
+              "BTTOrder" : 37
             }
           ],
           "BTTTriggerLauncherConfig" : {
@@ -54,7 +71,7 @@
           }
         },
         {
-          "BTTLastUpdatedAt" : 1788232814.0085731,
+          "BTTLastUpdatedAt" : 1788273845.9004879,
           "BTTTriggerType" : 112,
           "BTTTriggerTypeDescriptionReadOnly" : "3 Finger Click",
           "BTTTriggerClass" : "BTTTriggerTypeTouchpadAll",
@@ -62,7 +79,7 @@
           "BTTOrder" : 0,
           "BTTActionsToExecute" : [
             {
-              "BTTLastUpdatedAt" : 1788232814.0085568,
+              "BTTLastUpdatedAt" : 1788273845.900408,
               "BTTTriggerParentUUID" : "D53BA047-A2C8-4EDD-A99D-54A8ADAADBD0",
               "BTTIsPureAction" : true,
               "BTTUUID" : "96121042-E7A0-4E72-A76B-C8A7DBE87640",
@@ -73,7 +90,7 @@
           ]
         },
         {
-          "BTTLastUpdatedAt" : 1788233034.201041,
+          "BTTLastUpdatedAt" : 1788273897.55094,
           "BTTTriggerType" : 0,
           "BTTTriggerClass" : "BTTTriggerTypeKeyboardShortcut",
           "BTTUUID" : "5B79754A-0747-41C9-9DDF-4EB900E95492",
@@ -88,7 +105,7 @@
           "BTTAutoAdaptToKeyboardLayout" : 0,
           "BTTActionsToExecute" : [
             {
-              "BTTLastUpdatedAt" : 1788233024.2845521,
+              "BTTLastUpdatedAt" : 1788273845.900372,
               "BTTTriggerParentUUID" : "5B79754A-0747-41C9-9DDF-4EB900E95492",
               "BTTIsPureAction" : true,
               "BTTUUID" : "EAA4F15A-5D65-4871-8600-30DC5AEF9557",
@@ -99,13 +116,30 @@
               "BTTOrder" : 24
             },
             {
-              "BTTLastUpdatedAt" : 1788233044.1803341,
+              "BTTLastUpdatedAt" : 1788273896.22962,
               "BTTTriggerParentUUID" : "5B79754A-0747-41C9-9DDF-4EB900E95492",
               "BTTIsPureAction" : true,
-              "BTTUUID" : "0CE9F60B-F598-4058-B51E-7B538D46A618",
+              "BTTUUID" : "45679831-9E3A-4A48-BBFC-7BC175C96088",
               "BTTPredefinedActionType" : 114,
               "BTTPredefinedActionName" : "Move Right a Space",
-              "BTTOrder" : 25
+              "BTTOrder" : 35
+            },
+            {
+              "BTTLastUpdatedAt" : 1788302661.23242,
+              "BTTTriggerParentUUID" : "5B79754A-0747-41C9-9DDF-4EB900E95492",
+              "BTTIsPureAction" : true,
+              "BTTUUID" : "35E27E91-4E73-46B2-92C5-693A986044A3",
+              "BTTPredefinedActionType" : 172,
+              "BTTPredefinedActionName" : "Run Apple Script (blocking)",
+              "BTTAdditionalActionData" : {
+                "BTTScriptType" : 0,
+                "BTTAppleScriptUsePath" : false,
+                "BTTScriptLocation" : 0,
+                "BTTAppleScriptRunInBackground" : false,
+                "BTTAppleScriptString" : "set helper to POSIX path of (path to home folder) & \".local/bin/move-window-space\"\rdo shell script (quoted form of helper) & \" focus\""
+              },
+              "BTTInlineAppleScript" : "set helper to POSIX path of (path to home folder) & \".local/bin/move-window-space\"\rdo shell script (quoted form of helper) & \" focus\"",
+              "BTTOrder" : 36
             }
           ],
           "BTTTriggerLauncherConfig" : {
@@ -130,7 +164,7 @@
       "BTTAppProcessName" : "Terminal",
       "BTTTriggers" : [
         {
-          "BTTLastUpdatedAt" : 1788232814.0085912,
+          "BTTLastUpdatedAt" : 1788273845.9004769,
           "BTTTriggerType" : 112,
           "BTTTriggerTypeDescriptionReadOnly" : "3 Finger Click",
           "BTTTriggerClass" : "BTTTriggerTypeTouchpadAll",
@@ -138,7 +172,7 @@
           "BTTOrder" : 0,
           "BTTActionsToExecute" : [
             {
-              "BTTLastUpdatedAt" : 1788232814.008579,
+              "BTTLastUpdatedAt" : 1788273845.9004431,
               "BTTTriggerParentUUID" : "69BBB9FF-7882-41B9-9C1A-52D02A7D2B43",
               "BTTIsPureAction" : true,
               "BTTUUID" : "99CBF0F5-60C5-43DD-8B37-0F27E2EF55CB",
@@ -149,7 +183,7 @@
           ]
         },
         {
-          "BTTLastUpdatedAt" : 1788232814.008604,
+          "BTTLastUpdatedAt" : 1788273845.9003959,
           "BTTTriggerType" : 0,
           "BTTTriggerClass" : "BTTTriggerTypeKeyboardShortcut",
           "BTTUUID" : "CFB7583E-7663-40B1-BB45-9D3AB48AD161",
@@ -164,7 +198,7 @@
           "BTTAutoAdaptToKeyboardLayout" : 0,
           "BTTActionsToExecute" : [
             {
-              "BTTLastUpdatedAt" : 1788232814.0085979,
+              "BTTLastUpdatedAt" : 1788273845.9005001,
               "BTTTriggerParentUUID" : "CFB7583E-7663-40B1-BB45-9D3AB48AD161",
               "BTTIsPureAction" : true,
               "BTTUUID" : "7AFAB116-BA5B-4F89-B552-3BCA7300F429",
@@ -177,7 +211,7 @@
           ]
         },
         {
-          "BTTLastUpdatedAt" : 1788232814.00861,
+          "BTTLastUpdatedAt" : 1788273845.9004312,
           "BTTTriggerType" : 0,
           "BTTTriggerClass" : "BTTTriggerTypeKeyboardShortcut",
           "BTTUUID" : "2813AF86-F67F-406B-A421-2847E736741E",
@@ -192,7 +226,7 @@
           "BTTAutoAdaptToKeyboardLayout" : 0,
           "BTTActionsToExecute" : [
             {
-              "BTTLastUpdatedAt" : 1788232814.008585,
+              "BTTLastUpdatedAt" : 1788273845.900454,
               "BTTTriggerParentUUID" : "2813AF86-F67F-406B-A421-2847E736741E",
               "BTTIsPureAction" : true,
               "BTTUUID" : "62A55E8C-41E1-4556-AAE1-3B39577E6DB1",

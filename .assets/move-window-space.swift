@@ -1,9 +1,15 @@
-// Build: swiftc -O -swift-version 5 move-window-space.swift -o move-window-space
-// Usage: move-window-space next|prev
+// move-window-space — move the frontmost window to the adjacent Space.
+// Usage: move-window-space next|prev|focus
+//
+// `next` and `prev` move the window but leave the current Space unchanged.
+// BTT can then animate the Space switch, followed by `focus`.
+// This script exists as a stop-gap for BTT bug:
+// https://community.folivora.ai/t/move-window-to-desktop-activates-zoom-instead/45708
 
 import AppKit
+import ApplicationServices
+import Darwin
 import Foundation
-import MachO
 import ObjectiveC
 
 private func fail(_ message: String, status: Int32 = 1) -> Never {
@@ -15,178 +21,109 @@ private let defaultHandle = UnsafeMutableRawPointer(bitPattern: -2)!
 private let skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
 
 private func symbol<T>(_ handle: UnsafeMutableRawPointer?, _ name: String, _ type: T.Type) -> T {
-    guard let handle, let pointer = dlsym(handle, name) else { fail("cannot resolve \(name)", status: 2) }
+    guard let handle, let pointer = dlsym(handle, name) else {
+        fail("cannot resolve \(name)", status: 2)
+    }
     return unsafeBitCast(pointer, to: type)
+}
+
+private func optionalSymbol<T>(_ name: String, _ type: T.Type) -> T? {
+    for handle in [skyLight, defaultHandle] {
+        guard let handle, let pointer = dlsym(handle, name) else { continue }
+        return unsafeBitCast(pointer, to: type)
+    }
+    return nil
 }
 
 private typealias MainConnectionFn = @convention(c) () -> Int32
 private typealias CopySpacesForWindowsFn = @convention(c) (Int32, Int32, CFArray) -> CFArray?
 private typealias CopyManagedDisplaySpacesFn = @convention(c) (Int32) -> CFArray?
-private typealias SharedCacheUUIDFn = @convention(c) (UnsafeMutablePointer<UInt8>) -> Bool
-private typealias PerformFn = @convention(c) (AnyObject?) -> Void
+private typealias CopyManagedDisplayForSpaceFn = @convention(c) (Int32, UInt64) -> CFString?
+private typealias CurrentSpaceFn = @convention(c) (Int32, CFString) -> UInt64
+private typealias DisplayIsAnimatingFn = @convention(c) (Int32, CFString) -> Bool
+private typealias SpaceSetFrontPSNFn = @convention(c) (Int32, UInt64, ProcessSerialNumber) -> Int32
+private typealias GetWindowOwnerFn = @convention(c) (Int32, UInt32, UnsafeMutablePointer<Int32>) -> Int32
+private typealias GetConnectionPSNFn = @convention(c) (Int32, UnsafeMutablePointer<ProcessSerialNumber>) -> Int32
+private typealias SetFrontProcessFn = @convention(c) (UnsafeMutablePointer<ProcessSerialNumber>, UInt32, UInt32) -> Int32
+private typealias PostEventRecordFn = @convention(c) (UnsafeMutablePointer<ProcessSerialNumber>, UnsafeMutablePointer<UInt8>) -> Int32
+private typealias GetAXWindowFn = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
 
 private let connection = symbol(skyLight, "SLSMainConnectionID", MainConnectionFn.self)()
 private let copyWindowSpaces = symbol(skyLight, "SLSCopySpacesForWindows", CopySpacesForWindowsFn.self)
 private let copyDisplaySpaces = symbol(skyLight, "SLSCopyManagedDisplaySpaces", CopyManagedDisplaySpacesFn.self)
-private let copySharedCacheUUID = symbol(defaultHandle, "_dyld_get_shared_cache_uuid", SharedCacheUUIDFn.self)
+private let copyManagedDisplayForSpace = symbol(skyLight, "SLSCopyManagedDisplayForSpace", CopyManagedDisplayForSpaceFn.self)
+private let currentSpaceForDisplay = symbol(skyLight, "SLSManagedDisplayGetCurrentSpace", CurrentSpaceFn.self)
+private let displayIsAnimating = optionalSymbol("SLSManagedDisplayIsAnimating", DisplayIsAnimatingFn.self)
+private let spaceSetFrontPSN = optionalSymbol("SLSSpaceSetFrontPSN", SpaceSetFrontPSNFn.self)
+private let getWindowOwner = optionalSymbol("SLSGetWindowOwner", GetWindowOwnerFn.self)
+private let getConnectionPSN = optionalSymbol("SLSGetConnectionPSN", GetConnectionPSNFn.self)
+private let setFrontProcess = optionalSymbol("_SLPSSetFrontProcessWithOptions", SetFrontProcessFn.self)
+private let postEventRecord = optionalSymbol("SLPSPostEventRecordTo", PostEventRecordFn.self)
+private let getAXWindow = optionalSymbol("_AXUIElementGetWindow", GetAXWindowFn.self)
 
-private struct SkyLightInfo {
-    var slide: Int
-    var textVM: UInt64
-    var textSize: UInt64
-    var linkeditVM: UInt64
-    var symOff: UInt64
-    var symbolCount: UInt32
-    var strOff: UInt64
-    var strSize: UInt64
-}
-
-private struct Bridge {
-    let perform: PerformFn
-    let operationClass: AnyClass
-    let initializer: Selector
-}
-
-private func liveSkyLight() -> SkyLightInfo? {
-    guard skyLight != nil else { return nil }
-    for index in 0..<_dyld_image_count() {
-        guard let name = _dyld_get_image_name(index),
-              String(cString: name).contains("SkyLight.framework"),
-              String(cString: name).hasSuffix("/SkyLight") else { continue }
-        let header = UnsafeRawPointer(_dyld_get_image_header(index))!
-        var info = SkyLightInfo(slide: _dyld_get_image_vmaddr_slide(index), textVM: 0, textSize: 0,
-                                linkeditVM: 0, symOff: 0, symbolCount: 0, strOff: 0, strSize: 0)
-        // mach_header_64.ncmds@16; segment_command_64 segname@8, vmaddr@24, vmsize@32;
-        // symtab_command symoff@8, nsyms@12, stroff@16, strsize@20.
-        var command = header + 32
-        for _ in 0..<header.load(fromByteOffset: 16, as: UInt32.self) {
-            let type = command.load(as: UInt32.self)
-            if type == UInt32(LC_SEGMENT_64) {
-                let name = String(cString: (command + 8).assumingMemoryBound(to: CChar.self))
-                if name == "__TEXT" {
-                    info.textVM = command.load(fromByteOffset: 24, as: UInt64.self)
-                    info.textSize = command.load(fromByteOffset: 32, as: UInt64.self)
-                } else if name == "__LINKEDIT" {
-                    info.linkeditVM = command.load(fromByteOffset: 24, as: UInt64.self)
-                }
-            } else if type == UInt32(LC_SYMTAB) {
-                info.symOff = UInt64(command.load(fromByteOffset: 8, as: UInt32.self))
-                info.symbolCount = command.load(fromByteOffset: 12, as: UInt32.self)
-                info.strOff = UInt64(command.load(fromByteOffset: 16, as: UInt32.self))
-                info.strSize = UInt64(command.load(fromByteOffset: 20, as: UInt32.self))
-            }
-            command += Int(command.load(fromByteOffset: 4, as: UInt32.self))
-        }
-        return info.textSize > 0 && info.linkeditVM > 0 && info.symbolCount > 0 ? info : nil
-    }
-    return nil
-}
-
-private func sharedCacheUUID() -> UUID? {
-    var bytes = [UInt8](repeating: 0, count: 16)
-    guard bytes.withUnsafeMutableBufferPointer({ copySharedCacheUUID($0.baseAddress!) }) else { return nil }
-    return bytes.withUnsafeBytes { UUID(uuid: $0.load(as: uuid_t.self)) }
-}
-
-private func u32(_ data: Data, _ offset: Int) -> UInt32 {
-    data.withUnsafeBytes { $0.load(fromByteOffset: offset, as: UInt32.self) }
-}
-
-private func u64(_ data: Data, _ offset: Int) -> UInt64 {
-    data.withUnsafeBytes { $0.load(fromByteOffset: offset, as: UInt64.self) }
-}
-
-private func read(_ file: FileHandle, _ count: Int) -> Data? {
-    let data = file.readData(ofLength: count)
-    return data.count == count ? data : nil
-}
-
-private func inText(_ value: UInt64, _ info: SkyLightInfo) -> Bool {
-    value >= info.textVM && value - info.textVM < info.textSize
-}
-
-private let performName = "__ZL54SLSPerformAsynchronousBridgedWindowManagementOperationP47SLSAsynchronousBridgedWindowManagementOperation"
-
-private func resolveValue(_ info: SkyLightInfo, cacheUUID: UUID) -> UInt64? {
-    let statePath = NSHomeDirectory() + "/Library/Caches/move-window-space/bridged-nvalue.txt"
-    if let state = try? String(contentsOfFile: statePath, encoding: .utf8) {
-        let fields = state.split(whereSeparator: { $0.isWhitespace })
-        if fields.count == 2, UUID(uuidString: String(fields[0])) == cacheUUID,
-           let value = UInt64(fields[1]), inText(value, info) { return value }
+// The operation is a private Objective-C class, but its public runtime method is
+// discoverable without parsing the dyld shared cache or calling a guessed address.
+private func moveWindow(_ window: CGWindowID, to space: UInt64) {
+    guard let operationClass: AnyClass = NSClassFromString("SLSBridgedMoveWindowsToManagedSpaceOperation") else {
+        fail("bridged window-management operation is unavailable", status: 2)
     }
 
-    let paths = ["/System/Volumes/Preboot/Cryptexes/OS/System/Library/dyld/dyld_shared_cache_arm64e",
-                 "/System/Library/dyld/dyld_shared_cache_arm64e"]
-    files: for path in paths {
-        guard let file = FileHandle(forReadingAtPath: path) else { continue }
-        defer { try? file.close() }
-        guard let header = read(file, 0x68),
-              String(data: header.prefix(8), encoding: .ascii)?.hasPrefix("dyld_v1 ") == true,
-              header.withUnsafeBytes({ UUID(uuid: $0.load(fromByteOffset: 0x58, as: uuid_t.self)) }) == cacheUUID else { continue }
-
-        // dyld_cache_header mappingOffset@0x10, mappingCount@0x14;
-        // dyld_cache_mapping_info address@0, fileOffset@16, stride 32.
-        let mappingOffset = UInt64(u32(header, 0x10))
-        let mappingCount = Int(u32(header, 0x14))
-        guard mappingCount < 64 else { continue }
-        file.seek(toFileOffset: mappingOffset)
-        guard let mappings = read(file, mappingCount * 32),
-              let mapping = (0..<mappingCount).first(where: { u64(mappings, $0 * 32) == info.linkeditVM }),
-              info.symOff >= u64(mappings, mapping * 32 + 16) else { continue }
-
-        let target = Data((performName + "\0").utf8)
-        let stringEnd = info.strOff + info.strSize
-        var stringIndex: UInt64?
-        var position = info.strOff
-        while position < stringEnd, stringIndex == nil {
-            let step = min(UInt64(32 * 1024 * 1024), stringEnd - position)
-            let count = Int(min(stringEnd - position, step + UInt64(target.count - 1)))
-            file.seek(toFileOffset: position)
-            guard let chunk = read(file, count) else { continue files }
-            if let match = chunk.range(of: target) {
-                stringIndex = position + UInt64(match.lowerBound) - info.strOff
-            } else {
-                position += step
-            }
-        }
-        guard let stringIndex else { continue }
-
-        file.seek(toFileOffset: info.symOff)
-        guard let symbols = read(file, Int(info.symbolCount) * 16),
-              let index = (0..<Int(info.symbolCount)).first(where: { u32(symbols, $0 * 16) == UInt32(stringIndex) }) else { continue }
-        let offset = index * 16
-        let value = u64(symbols, offset + 8)
-        guard symbols[offset + 4] & UInt8(N_TYPE) == UInt8(N_SECT), inText(value, info) else { continue }
-
-        let manager = FileManager.default
-        try? manager.createDirectory(atPath: (statePath as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
-        try? "\(cacheUUID.uuidString) \(value)\n".write(toFile: statePath, atomically: true, encoding: .utf8)
-        return value
-    }
-    return nil
-}
-
-private func resolveBridge() -> Bridge? {
-    guard let info = liveSkyLight(), let cacheUUID = sharedCacheUUID(),
-          let value = resolveValue(info, cacheUUID: cacheUUID),
-          let operationClass: AnyClass = NSClassFromString("SLSBridgedMoveWindowsToManagedSpaceOperation") else { return nil }
     let initializer = sel_registerName("initWithWindows:spaceID:")
-    guard let method = class_getInstanceMethod(operationClass, initializer),
-          let encoding = method_getTypeEncoding(method), String(cString: encoding) == "@32@0:8@16Q24",
-          let address = UnsafeMutableRawPointer(bitPattern: UInt(value) + UInt(info.slide)) else { return nil }
-    return Bridge(perform: unsafeBitCast(address, to: PerformFn.self), operationClass: operationClass, initializer: initializer)
+    let performSelector = sel_registerName("performWithWMBridgeDelegate")
+    guard let initializerMethod = class_getInstanceMethod(operationClass, initializer),
+          let initializerEncoding = method_getTypeEncoding(initializerMethod),
+          String(cString: initializerEncoding) == "@32@0:8@16Q24",
+          let performMethod = class_getInstanceMethod(operationClass, performSelector),
+          let performEncoding = method_getTypeEncoding(performMethod),
+          String(cString: performEncoding) == "v16@0:8" else {
+        fail("bridged window-management ABI is unavailable", status: 2)
+    }
+
+    let send = symbol(defaultHandle, "objc_msgSend", UnsafeMutableRawPointer.self)
+    let alloc = unsafeBitCast(send, to: (@convention(c) (AnyClass, Selector) -> AnyObject).self)
+    let initialize = unsafeBitCast(send, to: (@convention(c) (AnyObject, Selector, CFArray, UInt64) -> AnyObject?).self)
+    let perform = unsafeBitCast(send, to: (@convention(c) (AnyObject, Selector) -> Void).self)
+
+    guard let operation = initialize(alloc(operationClass, sel_registerName("alloc")), initializer,
+                                     [NSNumber(value: window)] as CFArray, space) else {
+        fail("cannot create window-management operation", status: 2)
+    }
+    perform(operation, performSelector)
 }
 
-private func frontWindow() -> CGWindowID? {
+// MARK: Queries
+
+private struct Space {
+    let id: UInt64
+    let type: Int
+}
+
+private struct FrontWindow {
+    let app: NSRunningApplication
+    let id: CGWindowID
+}
+
+private func frontWindow() -> FrontWindow? {
     guard let app = NSWorkspace.shared.frontmostApplication,
-          let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
+          let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+        return nil
+    }
+
     for window in windows {
-        guard let layer = window[kCGWindowLayer as String] as? Int, layer == 0,
-              let pid = window[kCGWindowOwnerPID as String] as? Int32, pid == app.processIdentifier else { continue }
-        guard let number = window[kCGWindowNumber as String] as? Int, number != 0,
-              let bounds = window[kCGWindowBounds as String] as? [String: CGFloat],
-              let width = bounds["Width"], let height = bounds["Height"], width > 0, height > 0 else { return nil }
-        return CGWindowID(number)
+        guard let pid = window[kCGWindowOwnerPID as String] as? NSNumber,
+              pid.int32Value == app.processIdentifier,
+              let layer = window[kCGWindowLayer as String] as? NSNumber,
+              layer.intValue == 0,
+              let number = window[kCGWindowNumber as String] as? NSNumber,
+              number.uint32Value != 0,
+              let bounds = window[kCGWindowBounds as String] as? [String: Any],
+              let width = (bounds["Width"] as? NSNumber)?.doubleValue,
+              let height = (bounds["Height"] as? NSNumber)?.doubleValue,
+              width > 0,
+              height > 0 else {
+            continue
+        }
+        return FrontWindow(app: app, id: CGWindowID(number.uint32Value))
     }
     return nil
 }
@@ -195,45 +132,254 @@ private func windowSpaces(_ window: CGWindowID) -> [UInt64] {
     (copyWindowSpaces(connection, 0x7, [NSNumber(value: window)] as CFArray) as? [NSNumber])?.map(\.uint64Value) ?? []
 }
 
-private func displaySpaces() -> [[(id: UInt64, type: Int)]] {
+private func windowOwnerPID(_ window: CGWindowID) -> pid_t? {
+    guard let windows = CGWindowListCopyWindowInfo([.optionIncludingWindow, .excludeDesktopElements], window) as? [[String: Any]],
+          let info = windows.first,
+          let pid = info[kCGWindowOwnerPID as String] as? NSNumber else {
+        return nil
+    }
+    return pid.int32Value
+}
+
+private func displaySpaces() -> [[Space]] {
     guard let displays = copyDisplaySpaces(connection) as? [[String: Any]] else { return [] }
     return displays.map { display in
         guard let raw = display["Spaces"] as? [[String: Any]] else { return [] }
-        let spaces = raw.compactMap { space -> (id: UInt64, type: Int)? in
-            guard let id = space["id64"] as? NSNumber, let type = space["type"] as? NSNumber else { return nil }
-            return (id.uint64Value, type.intValue)
+        return raw.compactMap { space in
+            guard let id = space["id64"] as? NSNumber,
+                  let type = space["type"] as? NSNumber else { return nil }
+            return Space(id: id.uint64Value, type: type.intValue)
         }
-        return spaces.count == raw.count ? spaces : []
     }
 }
 
-private func move(_ bridge: Bridge, window: CGWindowID, space: UInt64) {
-    let send = symbol(defaultHandle, "objc_msgSend", UnsafeMutableRawPointer.self)
-    let alloc = unsafeBitCast(send, to: (@convention(c) (AnyClass, Selector) -> AnyObject).self)
-    let initialize = unsafeBitCast(send, to: (@convention(c) (AnyObject, Selector, CFArray, UInt64) -> AnyObject?).self)
-    guard let operation = initialize(alloc(bridge.operationClass, sel_registerName("alloc")), bridge.initializer,
-                                     [NSNumber(value: window)] as CFArray, space) else {
-        fail("cannot create window-management operation", status: 2)
-    }
-    bridge.perform(operation)
+private func waitUntil(timeout: TimeInterval, _ condition: () -> Bool) -> Bool {
+    let deadline = DispatchTime.now().uptimeNanoseconds + UInt64(timeout * 1_000_000_000)
+    repeat {
+        if condition() { return true }
+        usleep(10_000)
+    } while DispatchTime.now().uptimeNanoseconds < deadline
+    return condition()
 }
+
+// MARK: Pending move state
+
+private struct PendingMove {
+    let pid: pid_t
+    let window: CGWindowID
+    let space: UInt64
+    let created: TimeInterval
+}
+
+private let stateURL = FileManager.default.temporaryDirectory
+    .appendingPathComponent("move-window-space-\(getuid()).state")
+
+private func loadState() -> PendingMove? {
+    guard let text = try? String(contentsOf: stateURL, encoding: .utf8) else { return nil }
+    let fields = text.split(whereSeparator: \.isWhitespace)
+    guard fields.count == 4,
+          let pid = pid_t(fields[0]),
+          let window = UInt32(fields[1]),
+          let space = UInt64(fields[2]),
+          let created = TimeInterval(fields[3]) else {
+        return nil
+    }
+    return PendingMove(pid: pid, window: CGWindowID(window), space: space, created: created)
+}
+
+private func saveState(_ state: PendingMove) {
+    let text = "\(state.pid) \(state.window) \(state.space) \(state.created)\n"
+    do {
+        try text.write(to: stateURL, atomically: true, encoding: .utf8)
+    } catch {
+        fail("cannot save pending move: \(error)")
+    }
+}
+
+private func clearState() {
+    try? FileManager.default.removeItem(at: stateURL)
+}
+
+private func rejectExistingMove() {
+    guard FileManager.default.fileExists(atPath: stateURL.path) else { return }
+    let age = loadState().map { Date().timeIntervalSince1970 - $0.created }
+    if let age, age >= 0, age < 30 {
+        fail("a move is already waiting for focus")
+    }
+    clearState()
+}
+
+// MARK: Focus
+
+private func ownerPSN(for window: CGWindowID) -> ProcessSerialNumber? {
+    guard let getWindowOwner, let getConnectionPSN else { return nil }
+    var ownerConnection: Int32 = 0
+    guard getWindowOwner(connection, window, &ownerConnection) == 0 else { return nil }
+    var psn = ProcessSerialNumber()
+    guard getConnectionPSN(ownerConnection, &psn) == 0 else { return nil }
+    return psn
+}
+
+private func postKeyWindowEvent(_ psn: inout ProcessSerialNumber, window: CGWindowID, event: UInt8) -> Bool {
+    guard let postEventRecord else { return false }
+    var record = [UInt8](repeating: 0, count: 0xf8)
+    record[0x04] = 0xf8
+    record[0x08] = event
+    record[0x3a] = 0x10
+    for index in 0x20..<0x30 { record[index] = 0xff }
+    withUnsafeBytes(of: window) { bytes in
+        for (index, byte) in bytes.enumerated() {
+            record[0x3c + index] = byte
+        }
+    }
+    return withUnsafeMutablePointer(to: &psn) { psnPointer in
+        record.withUnsafeMutableBufferPointer { eventPointer in
+            postEventRecord(psnPointer, eventPointer.baseAddress!) == 0
+        }
+    }
+}
+
+private func focusedWindowID(for pid: pid_t) -> CGWindowID? {
+    guard let getAXWindow else { return nil }
+    let application = AXUIElementCreateApplication(pid)
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(application, kAXFocusedWindowAttribute as CFString, &value) == .success,
+          let value else { return nil }
+    let windowElement = unsafeBitCast(value, to: AXUIElement.self)
+    var window = CGWindowID(0)
+    return getAXWindow(windowElement, &window) == .success ? window : nil
+}
+
+private func raiseFocusedWindow(for pid: pid_t, expected: CGWindowID) {
+    let application = AXUIElementCreateApplication(pid)
+    var value: CFTypeRef?
+    guard AXUIElementCopyAttributeValue(application, kAXFocusedWindowAttribute as CFString, &value) == .success,
+          let value else { return }
+    let window = unsafeBitCast(value, to: AXUIElement.self)
+    var windowID = CGWindowID(0)
+    guard getAXWindow?(window, &windowID) == .success, windowID == expected else { return }
+    _ = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+}
+
+private func focus(_ state: PendingMove) {
+    guard windowOwnerPID(state.window) == state.pid else {
+        fail("window identity changed")
+    }
+    guard let display = copyManagedDisplayForSpace(connection, state.space),
+          waitUntil(timeout: 3, {
+              guard currentSpaceForDisplay(connection, display) == state.space else { return false }
+              guard let displayIsAnimating else { return true }
+              return !displayIsAnimating(connection, display)
+          }) else {
+        fail("destination Space is still animating")
+    }
+    usleep(200_000)
+
+    guard let owner = ownerPSN(for: state.window),
+          let setFrontProcess,
+          let spaceSetFrontPSN else {
+        fail("focus APIs are unavailable", status: 2)
+    }
+
+    _ = spaceSetFrontPSN(connection, state.space, owner)
+    var psn = owner
+    guard setFrontProcess(&psn, state.window, 0x200) == 0,
+          postKeyWindowEvent(&psn, window: state.window, event: 0x01),
+          postKeyWindowEvent(&psn, window: state.window, event: 0x02) else {
+        fail("cannot focus moved window", status: 2)
+    }
+    raiseFocusedWindow(for: state.pid, expected: state.window)
+
+    guard waitUntil(timeout: 2, {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == state.pid else { return false }
+        if let focused = focusedWindowID(for: state.pid) {
+            return focused == state.window
+        }
+        return frontWindow()?.id == state.window
+    }) else {
+        fail("moved window is not frontmost")
+    }
+}
+
+// MARK: Process lock
+
+private final class InvocationLock {
+    private let descriptor: Int32
+
+    init() {
+        let path = FileManager.default.temporaryDirectory
+            .appendingPathComponent("move-window-space-\(getuid()).lock")
+        descriptor = open(path.path, O_CREAT | O_RDWR, mode_t(0o600))
+        guard descriptor >= 0 else { fail("cannot create invocation lock") }
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
+            fail("another invocation is running")
+        }
+    }
+
+    deinit {
+        flock(descriptor, LOCK_UN)
+        close(descriptor)
+    }
+}
+
+// MARK: Main
 
 let arguments = CommandLine.arguments
-guard arguments.count == 2, arguments[1] == "next" || arguments[1] == "prev" else {
-    fail("usage: move-window-space next|prev")
+let command = arguments.dropFirst()
+guard arguments.count == 2,
+      let action = command.first,
+      ["next", "prev", "focus"].contains(action) else {
+    fail("usage: move-window-space next|prev|focus")
 }
-guard let bridge = resolveBridge() else { fail("incompatible SkyLight API", status: 2) }
-guard let window = frontWindow() else { fail("no frontmost window found") }
 
-let ownedSpaces = windowSpaces(window)
-guard ownedSpaces.count == 1,
-      let list = displaySpaces().first(where: { spaces in spaces.contains { $0.id == ownedSpaces[0] } }),
-      let current = list.firstIndex(where: { $0.id == ownedSpaces[0] }) else {
-    fail("window is sticky or unmanaged")
+private let lock = InvocationLock()
+
+switch action {
+case "next", "prev":
+    rejectExistingMove()
+    guard let front = frontWindow() else { fail("no frontmost window found") }
+    let ownedSpaces = windowSpaces(front.id)
+    guard ownedSpaces.count == 1,
+          let display = displaySpaces().first(where: { $0.contains { $0.id == ownedSpaces[0] } }),
+          let current = display.firstIndex(where: { $0.id == ownedSpaces[0] }) else {
+        fail("window is sticky or unmanaged")
+    }
+
+    let direction = action == "next" ? 1 : -1
+    let targetIndex = current + direction
+    guard display[current].type == 0,
+          display.indices.contains(targetIndex),
+          display[targetIndex].type == 0 else {
+        fail("no adjacent desktop Space")
+    }
+
+    let target = display[targetIndex].id
+    moveWindow(front.id, to: target)
+    guard waitUntil(timeout: 3, { windowSpaces(front.id).contains(target) }) else {
+        fail("window move did not complete")
+    }
+
+    if let owner = ownerPSN(for: front.id) {
+        _ = spaceSetFrontPSN?(connection, target, owner)
+    }
+    saveState(PendingMove(pid: front.app.processIdentifier,
+                          window: front.id,
+                          space: target,
+                          created: Date().timeIntervalSince1970))
+
+case "focus":
+    guard let state = loadState() else { fail("no pending move") }
+    let age = Date().timeIntervalSince1970 - state.created
+    guard age >= 0, age < 30 else {
+        clearState()
+        fail("pending move has expired")
+    }
+    guard windowSpaces(state.window).contains(state.space) else {
+        fail("moved window is no longer in the destination Space")
+    }
+    focus(state)
+    clearState()
+
+default:
+    fail("usage: move-window-space next|prev|focus")
 }
-let direction = arguments[1] == "next" ? 1 : -1
-let target = current + direction
-guard list[current].type == 0, list.indices.contains(target), list[target].type == 0 else {
-    fail("no adjacent desktop space on this display")
-}
-move(bridge, window: window, space: list[target].id)
