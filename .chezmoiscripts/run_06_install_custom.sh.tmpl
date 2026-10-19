@@ -41,5 +41,13 @@ else
     echo "BTT preset file not found. Skipping."
 fi
 
+terminal_profile={{ joinPath .chezmoi.sourceDir ".assets/Custom.terminal" | quote }}
+terminal_prefs=$(mktemp "${TMPDIR:-/tmp}/terminal-prefs.XXXXXX")
+trap 'rm -f "$terminal_prefs"' EXIT
+defaults export com.apple.Terminal "$terminal_prefs"
+/usr/libexec/PlistBuddy -c "Merge '$terminal_profile' ':Window Settings:Custom'" "$terminal_prefs" >/dev/null 2>&1
+defaults import com.apple.Terminal "$terminal_prefs"
+echo "Imported Terminal profile Custom."
+
 {{ end -}}
 echo "Done."
